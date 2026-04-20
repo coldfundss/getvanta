@@ -1,6 +1,7 @@
 if not shared.Vanta then
-    error("[Vanta] Config not found — paste the config first!")
+    error("[Vanta] Whoops! Wait for the developer to fix nigger!!")
 end
+
 if not LPH_OBFUSCATED then
     LPH_NO_VIRTUALIZE = function(...) return ... end
 end
@@ -28,14 +29,22 @@ local lastvisibletarget = nil
 local lasttriggerclick = 0
 local lasttargetscan = 0
 local scanrate = 1 / 20
+
+local haswalljumped = false
+local walljumpconnection = nil
 local mobileButtons = {}
 local mobiletouch = { position = Vector2.new(0, 0), active = false }
 local isMobile = uis.TouchEnabled and not uis.KeyboardEnabled
 cfg['mobile'] = cfg['mobile'] or { ['enabled'] = true, ['button size'] = 38, ['button opacity'] = 0.70, ['auto fire on touch'] = false }
 cfg['mobile']['enabled'] = isMobile
-
-local haswalljumped = false
-local walljumpconnection = nil
+cfg['settings']['team check'] = cfg['settings']['team check'] ~= nil and cfg['settings']['team check'] or true
+cfg['binds']['lock on'] = cfg['binds']['lock on'] or 'F'
+cfg['binds']['silent aim'] = cfg['binds']['silent aim'] or 'C'
+cfg['binds']['cam lock'] = cfg['binds']['cam lock'] or 'X'
+cfg['binds']['triggerbot'] = cfg['binds']['triggerbot'] or 'B'
+cfg['binds']['super jump'] = cfg['binds']['super jump'] or 'Z'
+cfg['binds']['esp'] = cfg['binds']['esp'] or 'H'
+cfg['binds']['speed'] = cfg['binds']['speed'] or 'V'
 
 local rayparams = RaycastParams.new()
 rayparams.FilterType = Enum.RaycastFilterType.Exclude
@@ -616,7 +625,7 @@ local function closestbodypart(char)
     local shortestdist = math.huge
 
     local bodyparts = getbodyparts(char)
-    local mousepos = getInputPosition()
+    local mousepos = uis:GetMouseLocation()
 
     for _, part in pairs(bodyparts) do
         if part then
@@ -642,7 +651,7 @@ end
 local function mouseinfov3d(fovpart)
     if not fovpart.Parent then return false end
 
-    local mpos = getInputPosition()
+    local mpos = uis:GetMouseLocation()
     local ray = camera:ViewportPointToRay(mpos.X, mpos.Y)
 
     local cf = fovpart.CFrame
@@ -696,7 +705,7 @@ local function partinfov3d(part, fovcfg)
     local fovsize = hrp.Size + Vector3.new(sx, sy, sz)
     local fovcf = hrp.CFrame
 
-    local mpos = getInputPosition()
+    local mpos = uis:GetMouseLocation()
     local ray = camera:ViewportPointToRay(mpos.X, mpos.Y)
 
     local cf = fovcf
@@ -759,7 +768,7 @@ local function mouseinfovconfig(fovcfg, targetpart)
             end
         end
         if not valid then return false end
-        local mpos = getInputPosition()
+        local mpos = uis:GetMouseLocation()
         return mpos.X >= minx and mpos.X <= maxx and mpos.Y >= miny and mpos.Y <= maxy
     end
     return partinfov3d(targetpart, fovcfg)
@@ -819,7 +828,7 @@ local function findtarget(fovcfg, distcfg, knifecheck)
 
     local besttarget = nil
     local bestdist = math.huge
-    local mpos = getInputPosition()
+    local mpos = uis:GetMouseLocation()
 
     for _, player in pairs(players:GetPlayers()) do
         if player ~= localplayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
@@ -853,6 +862,30 @@ local function findtarget(fovcfg, distcfg, knifecheck)
         return closestbodypart(besttarget.Parent) or besttarget
     end
 
+    return nil
+end
+
+local function findtargetcenter(distcfg)
+    local best, bestd = nil, math.huge
+    local vp = camera.ViewportSize
+    local cx, cy = vp.X / 2, vp.Y / 2
+    for _, player in pairs(players:GetPlayers()) do
+        if player == localplayer then continue end
+        if sameteam(player) then continue end
+        if not player.Character then continue end
+        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
+        if playerknocked(player) then continue end
+        local sp, on = camera:WorldToViewportPoint(hrp.Position)
+        if not on then continue end
+        if not cansee(hrp) then continue end
+        if not withindistance(hrp, distcfg) then continue end
+        local d = math.sqrt((sp.X - cx)^2 + (sp.Y - cy)^2)
+        if d < bestd then bestd = d; best = hrp end
+    end
+    if best then
+        return closestbodypart(best.Parent) or best
+    end
     return nil
 end
 
@@ -1053,7 +1086,7 @@ local function updatetargetline()
     local screenpos, onscreen = camera:WorldToViewportPoint(hrp.Position)
 
     if onscreen and screenpos.Z > 0 then
-        local mpos = getInputPosition()
+        local mpos = uis:GetMouseLocation()
 
         targetline.From = Vector2.new(mpos.X, mpos.Y)
         targetline.To = Vector2.new(screenpos.X, screenpos.Y)
@@ -1587,7 +1620,7 @@ if isMobile then
     createMobileButton("camlock", "CL", 4, function(state)
         if cfg['camera aimbot']['enabled'] then
             if state then
-                local t = findtarget(cfg['camera aimbot']['fov'], cfg['camera aimbot']['distance check'], true)
+                local t = findtargetcenter(cfg['camera aimbot']['distance check'])
                 if t then currenttarget = t; lastvisibletarget = t; camlockactive = true end
             else
                 camlockactive = false
@@ -1601,13 +1634,27 @@ if isMobile then
         if cfg['silent aimbot']['enabled'] then
             silentaimactive = state
             if state then
-                local t = findtarget(cfg['silent aimbot']['fov'], cfg['silent aimbot']['distance check'], false)
+                local t = findtargetcenter(cfg['silent aimbot']['distance check'])
                 if t then currenttarget = t; lastvisibletarget = t end
             else
                 if not camlockactive then
                     currenttarget = nil; lastvisibletarget = nil; targetline.Visible = false
                 end
             end
+        end
+    end)
+    createMobileButton("lockon", "LK", 6, function(state)
+        if state then
+            local t = findtargetcenter(cfg['silent aimbot']['distance check'])
+            if t then
+                currenttarget = t; lastvisibletarget = t
+                if cfg['silent aimbot']['enabled'] then silentaimactive = true end
+                if cfg['camera aimbot']['enabled'] then camlockactive = true end
+            end
+        else
+            currenttarget = nil; lastvisibletarget = nil
+            silentaimactive = false; camlockactive = false
+            targetline.Visible = false
         end
     end)
     do
@@ -1769,6 +1816,22 @@ uis.InputBegan:Connect(function(input, processed)
     if input.KeyCode == Enum.KeyCode[cfg['binds']['speed']] then
         if cfg['speed modifications']['enabled'] then
             speedenabled = not speedenabled
+        end
+    end
+
+    if input.KeyCode == Enum.KeyCode[cfg['binds']['lock on']] then
+        local t = findtargetcenter(cfg['silent aimbot']['distance check'])
+        if t then
+            currenttarget = t
+            lastvisibletarget = t
+            if cfg['silent aimbot']['enabled'] then silentaimactive = true end
+            if cfg['camera aimbot']['enabled'] then camlockactive = true end
+        else
+            currenttarget = nil
+            lastvisibletarget = nil
+            silentaimactive = false
+            camlockactive = false
+            targetline.Visible = false
         end
     end
 
