@@ -1,5 +1,5 @@
 if not shared.Vanta then
-    error("[Vanta] Whoops! Wait for the developer to fix nigger!!")
+    error("[Vanta] Config not found — paste the config first!")
 end
 
 if not LPH_OBFUSCATED then
@@ -32,6 +32,12 @@ local scanrate = 1 / 20
 
 local haswalljumped = false
 local walljumpconnection = nil
+local lockedtarget = nil
+local islocked = false
+local controlleraimactive = false
+local lastgamepadstate = {}
+local gamepaddeadzone = 0.15
+local gamepadaimbuffer = Vector2.new(0, 0)
 local mobileButtons = {}
 local mobiletouch = { position = Vector2.new(0, 0), active = false }
 local isMobile = uis.TouchEnabled and not uis.KeyboardEnabled
@@ -39,6 +45,15 @@ cfg['mobile'] = cfg['mobile'] or { ['enabled'] = true, ['button size'] = 38, ['b
 cfg['mobile']['enabled'] = isMobile
 cfg['settings']['team check'] = cfg['settings']['team check'] ~= nil and cfg['settings']['team check'] or true
 cfg['binds']['lock on'] = cfg['binds']['lock on'] or 'F'
+cfg['binds']['controller lock'] = cfg['binds']['controller lock'] or 'ButtonL2'
+cfg['binds']['controller fire'] = cfg['binds']['controller fire'] or 'ButtonR2'
+cfg['binds']['controller jump'] = cfg['binds']['controller jump'] or 'ButtonA'
+cfg['controller'] = cfg['controller'] or {
+    ['enabled'] = true,
+    ['aim sensitivity'] = 3.5,
+    ['lock sensitivity'] = 2.0,
+    ['deadzone'] = 0.15,
+}
 cfg['binds']['silent aim'] = cfg['binds']['silent aim'] or 'C'
 cfg['binds']['cam lock'] = cfg['binds']['cam lock'] or 'X'
 cfg['binds']['triggerbot'] = cfg['binds']['triggerbot'] or 'B'
@@ -865,6 +880,28 @@ local function findtarget(fovcfg, distcfg, knifecheck)
     return nil
 end
 
+local function findtargetmouse(distcfg)
+    local best, bestd = nil, math.huge
+    local mpos = getInputPosition()
+    for _, player in pairs(players:GetPlayers()) do
+        if player == localplayer then continue end
+        if sameteam(player) then continue end
+        if not player.Character then continue end
+        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
+        if playerknocked(player) then continue end
+        local sp, on = camera:WorldToViewportPoint(hrp.Position)
+        if not on then continue end
+        if not withindistance(hrp, distcfg) then continue end
+        local d = math.sqrt((sp.X - mpos.X)^2 + (sp.Y - mpos.Y)^2)
+        if d < bestd then bestd = d; best = hrp end
+    end
+    if best then
+        return closestbodypart(best.Parent) or best
+    end
+    return nil
+end
+
 local function findtargetcenter(distcfg)
     local best, bestd = nil, math.huge
     local vp = camera.ViewportSize
@@ -1542,7 +1579,16 @@ end)
 
 
 local BS = cfg['mobile']['button size']
-local GAP = 6
+local GAP = 8
+
+local COLORS = {
+    bg        = Color3.fromRGB(10, 10, 14),
+    border    = Color3.fromRGB(45, 45, 55),
+    activeBtn = Color3.fromRGB(88, 101, 242),
+    activeBorder = Color3.fromRGB(120, 135, 255),
+    text      = Color3.fromRGB(220, 220, 230),
+    activeText = Color3.fromRGB(255, 255, 255),
+}
 
 local function createMobileButton(name, label, slotIndex, togglecallback)
     if not isMobile then return end
@@ -1552,32 +1598,62 @@ local function createMobileButton(name, label, slotIndex, togglecallback)
     sg.IgnoreGuiInset = true
     sg.DisplayOrder = 999
     sg.Parent = localplayer.PlayerGui
+
     local btn = Instance.new("TextButton")
     btn.Name = name
     btn.Size = UDim2.new(0, BS, 0, BS)
-    btn.Position = UDim2.new(0, 8, 1, -(120 + slotIndex * (BS + GAP)))
-    btn.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-    btn.BackgroundTransparency = 1 - cfg['mobile']['button opacity']
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Position = UDim2.new(0, 12, 1, -(130 + slotIndex * (BS + GAP)))
+    btn.BackgroundColor3 = COLORS.bg
+    btn.BackgroundTransparency = 0.15
+    btn.TextColor3 = COLORS.text
     btn.Text = label
-    btn.TextScaled = true
+    btn.TextSize = 11
     btn.Font = Enum.Font.GothamBold
     btn.BorderSizePixel = 0
+    btn.AutoButtonColor = false
     btn.Parent = sg
+
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0.15, 0)
+    corner.CornerRadius = UDim.new(0.25, 0)
     corner.Parent = btn
+
     local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(70, 70, 70)
-    stroke.Thickness = 1
+    stroke.Color = COLORS.border
+    stroke.Thickness = 1.2
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     stroke.Parent = btn
+
+    local glow = Instance.new("UIGradient")
+    glow.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(30, 30, 40)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 10, 14)),
+    })
+    glow.Rotation = 135
+    glow.Parent = btn
+
     local active = false
     btn.MouseButton1Click:Connect(function()
         active = not active
-        btn.BackgroundColor3 = active and Color3.fromRGB(0, 100, 220) or Color3.fromRGB(15, 15, 15)
-        stroke.Color = active and Color3.fromRGB(0, 180, 255) or Color3.fromRGB(70, 70, 70)
+        if active then
+            btn.BackgroundColor3 = COLORS.activeBtn
+            btn.TextColor3 = COLORS.activeText
+            stroke.Color = COLORS.activeBorder
+            glow.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(108, 121, 255)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(68, 81, 200)),
+            })
+        else
+            btn.BackgroundColor3 = COLORS.bg
+            btn.TextColor3 = COLORS.text
+            stroke.Color = COLORS.border
+            glow.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(30, 30, 40)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 10, 14)),
+            })
+        end
         if togglecallback then togglecallback(active) end
     end)
+
     local dragging, dragStart, startPos = false, nil, nil
     btn.InputBegan:Connect(function(inp)
         if inp.UserInputType == Enum.UserInputType.Touch then
@@ -1593,6 +1669,7 @@ local function createMobileButton(name, label, slotIndex, togglecallback)
     btn.InputEnded:Connect(function(inp)
         if inp.UserInputType == Enum.UserInputType.Touch then dragging = false end
     end)
+
     mobileButtons[name] = { gui = sg, btn = btn }
     return btn
 end
@@ -1643,15 +1720,18 @@ if isMobile then
             end
         end
     end)
-    createMobileButton("lockon", "LK", 6, function(state)
+    createMobileButton("lockon", "🎯", 6, function(state)
         if state then
-            local t = findtargetcenter(cfg['silent aimbot']['distance check'])
+            local t = findtargetmouse(cfg['silent aimbot']['distance check'])
+            if not t then t = findtargetcenter(cfg['silent aimbot']['distance check']) end
             if t then
-                currenttarget = t; lastvisibletarget = t
+                currenttarget = t; lockedtarget = t; lastvisibletarget = t
+                islocked = true
                 if cfg['silent aimbot']['enabled'] then silentaimactive = true end
                 if cfg['camera aimbot']['enabled'] then camlockactive = true end
             end
         else
+            islocked = false; lockedtarget = nil
             currenttarget = nil; lastvisibletarget = nil
             silentaimactive = false; camlockactive = false
             targetline.Visible = false
@@ -1669,24 +1749,34 @@ if isMobile then
         rfBtn.Name = "rapidfire"
         rfBtn.Size = UDim2.new(0, rfBS, 0, rfBS)
         rfBtn.Position = UDim2.new(1, -(rfBS + 10), 1, -(72 + rfBS + 10))
-        rfBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-        rfBtn.BackgroundTransparency = 1 - cfg['mobile']['button opacity']
+        rfBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 55)
+        rfBtn.BackgroundTransparency = 0.15
         rfBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        rfBtn.Text = "RF"
+        rfBtn.Text = "🔥"
         rfBtn.TextScaled = true
         rfBtn.Font = Enum.Font.GothamBold
         rfBtn.BorderSizePixel = 0
+        rfBtn.AutoButtonColor = false
         rfBtn.Parent = sg2
-        Instance.new("UICorner", rfBtn).CornerRadius = UDim.new(0.15, 0)
+        local rfCorner = Instance.new("UICorner")
+        rfCorner.CornerRadius = UDim.new(0.25, 0)
+        rfCorner.Parent = rfBtn
+        local rfStroke = Instance.new("UIStroke")
+        rfStroke.Color = Color3.fromRGB(220, 70, 90)
+        rfStroke.Thickness = 1.2
+        rfStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        rfStroke.Parent = rfBtn
         rfBtn.MouseButton1Down:Connect(function()
             if cfg['rapid fire']['enabled'] and getrapidgun() then
                 isfiring = true
-                rfBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+                rfBtn.BackgroundColor3 = Color3.fromRGB(220, 50, 70)
+                rfStroke.Color = Color3.fromRGB(255, 100, 120)
             end
         end)
         rfBtn.MouseButton1Up:Connect(function()
             isfiring = false
-            rfBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+            rfBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 55)
+            rfStroke.Color = Color3.fromRGB(220, 70, 90)
         end)
         mobileButtons["rapidfire"] = { gui = sg2, btn = rfBtn }
     end
@@ -1820,18 +1910,24 @@ uis.InputBegan:Connect(function(input, processed)
     end
 
     if input.KeyCode == Enum.KeyCode[cfg['binds']['lock on']] then
-        local t = findtargetcenter(cfg['silent aimbot']['distance check'])
-        if t then
-            currenttarget = t
-            lastvisibletarget = t
-            if cfg['silent aimbot']['enabled'] then silentaimactive = true end
-            if cfg['camera aimbot']['enabled'] then camlockactive = true end
-        else
+        if islocked then
+            islocked = false
+            lockedtarget = nil
             currenttarget = nil
             lastvisibletarget = nil
             silentaimactive = false
             camlockactive = false
             targetline.Visible = false
+        else
+            local t = findtargetmouse(cfg['silent aimbot']['distance check'])
+            if t then
+                currenttarget = t
+                lockedtarget = t
+                lastvisibletarget = t
+                islocked = true
+                if cfg['silent aimbot']['enabled'] then silentaimactive = true end
+                if cfg['camera aimbot']['enabled'] then camlockactive = true end
+            end
         end
     end
 
@@ -1883,18 +1979,139 @@ uis.InputEnded:Connect(function(input, processed)
     end
 end)
 
+
+local isController = uis.GamepadEnabled
+local function getgamepadstate(keycode)
+    local state = uis:GetGamepadState(Enum.UserInputType.Gamepad1)
+    for _, inp in pairs(state) do
+        if inp.KeyCode == keycode then return inp end
+    end
+    return nil
+end
+
+local function getthumbstick(keycode)
+    local inp = getgamepadstate(keycode)
+    if inp then
+        local x, y = inp.Position.X, inp.Position.Y
+        local dead = cfg['controller']['deadzone']
+        if math.abs(x) < dead then x = 0 end
+        if math.abs(y) < dead then y = 0 end
+        return Vector2.new(x, y)
+    end
+    return Vector2.new(0, 0)
+end
+
+uis.GamepadButtonDown:Connect(function(gamepad, key)
+    if gamepad ~= Enum.UserInputType.Gamepad1 then return end
+
+    if key == Enum.KeyCode[cfg['binds']['controller lock']] then
+        if islocked then
+            islocked = false
+            lockedtarget = nil
+            currenttarget = nil
+            lastvisibletarget = nil
+            silentaimactive = false
+            camlockactive = false
+            targetline.Visible = false
+        else
+            local t = findtargetcenter(cfg['silent aimbot']['distance check'])
+            if t then
+                currenttarget = t
+                lockedtarget = t
+                lastvisibletarget = t
+                islocked = true
+                if cfg['silent aimbot']['enabled'] then silentaimactive = true end
+                if cfg['camera aimbot']['enabled'] then camlockactive = true end
+            end
+        end
+    end
+
+    if key == Enum.KeyCode[cfg['binds']['controller jump']] then
+        if cfg['super jump']['enabled'] and superjumpenabled then
+            local char = localplayer.Character
+            if char then
+                local hum = char:FindFirstChild("Humanoid")
+                if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+            end
+        end
+    end
+
+    if key == Enum.KeyCode.ButtonR3 then
+        speedenabled = not speedenabled
+    end
+
+    if key == Enum.KeyCode.ButtonL3 then
+        superjumpenabled = not superjumpenabled
+    end
+
+    if key == Enum.KeyCode.ButtonY then
+        cfg['esp']['enabled'] = not cfg['esp']['enabled']
+        if cfg['esp']['enabled'] then
+            for _, p in pairs(players:GetPlayers()) do
+                if p ~= localplayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                    if not esplabels[p.UserId] then addesp(p) end
+                end
+            end
+        end
+    end
+
+    if key == Enum.KeyCode.ButtonX then
+        triggerenabled = not triggerenabled
+    end
+
+    if key == Enum.KeyCode[cfg['binds']['controller fire']] then
+        if cfg['rapid fire']['enabled'] and getrapidgun() then isfiring = true end
+    end
+end)
+
+uis.GamepadButtonUp:Connect(function(gamepad, key)
+    if gamepad ~= Enum.UserInputType.Gamepad1 then return end
+    if key == Enum.KeyCode[cfg['binds']['controller fire']] then isfiring = false end
+end)
+
+local function applycontrolleraim(dt)
+    if not cfg['controller']['enabled'] then return end
+    if not isController then return end
+    local rs = getthumbstick(Enum.KeyCode.Thumbstick2)
+    if rs.Magnitude < 0.01 then return end
+    local sens = cfg['controller']['aim sensitivity']
+    local camcf = camera.CFrame
+    local newcf = camcf
+        * CFrame.Angles(0, -rs.X * sens * dt, 0)
+    newcf = newcf * CFrame.Angles(-rs.Y * sens * dt, 0, 0)
+    camera.CFrame = newcf
+end
+
 runservice.RenderStepped:Connect(LPH_NO_VIRTUALIZE(function(dt)
     if cfg['targeting']['mode'] == 'Automatic' then
-        local now = tick()
-        if now - lasttargetscan >= scanrate then
-            lasttargetscan = now
-            currenttarget = findtarget(cfg['silent aimbot']['fov'], cfg['silent aimbot']['distance check'], false)
+        if islocked and lockedtarget and lockedtarget.Parent and lockedtarget.Parent.Parent then
+            local lp = players:GetPlayerFromCharacter(lockedtarget.Parent)
+            if lp and not playerknocked(lp) and not sameteam(lp) then
+                currenttarget = lockedtarget
+                silentaimactive = true
+            else
+                islocked = false
+                lockedtarget = nil
+                currenttarget = nil
+                silentaimactive = false
+                camlockactive = false
+                targetline.Visible = false
+            end
+        else
+            islocked = false
+            local now = tick()
+            if now - lasttargetscan >= scanrate then
+                lasttargetscan = now
+                currenttarget = findtarget(cfg['silent aimbot']['fov'], cfg['silent aimbot']['distance check'], false)
+            end
+            silentaimactive = currenttarget ~= nil
         end
-        silentaimactive = currenttarget ~= nil
     end
 
     if selfknocked() then
         currenttarget = nil
+        lockedtarget = nil
+        islocked = false
         silentaimactive = false
         camlockactive = false
         lastvisibletarget = nil
@@ -1950,5 +2167,6 @@ runservice.RenderStepped:Connect(LPH_NO_VIRTUALIZE(function(dt)
     if cfg['camera aimbot']['enabled'] then
         applycamlock()
     end
+    applycontrolleraim(dt)
 end))
 print("[Vanta] Loaded successfully")
