@@ -1,5 +1,5 @@
 if not shared.Vanta then
-    warn("[Vanta] Whoops, no config found nigger!'")
+    error("[Vanta] Config not found — paste the config first!")
 end
 
 if not LPH_OBFUSCATED then
@@ -45,7 +45,7 @@ cfg['mobile'] = cfg['mobile'] or { ['enabled'] = true, ['button size'] = 38, ['b
 cfg['mobile']['enabled'] = isMobile
 cfg['settings']['team check'] = cfg['settings']['team check'] ~= nil and cfg['settings']['team check'] or true
 cfg['binds']['lock on'] = cfg['binds']['lock on'] or 'F'
-cfg['binds']['controller lock'] = cfg['binds']['controller lock'] or 'ButtonL2'
+cfg['binds']['controller lock'] = cfg['binds']['controller lock'] or 'DPadDown'
 cfg['binds']['controller fire'] = cfg['binds']['controller fire'] or 'ButtonR2'
 cfg['binds']['controller jump'] = cfg['binds']['controller jump'] or 'ButtonA'
 cfg['controller'] = cfg['controller'] or {
@@ -1998,6 +1998,8 @@ end)
 
 
 local isController = uis.GamepadEnabled
+uis.GamepadConnected:Connect(function() isController = true end)
+uis.GamepadDisconnected:Connect(function() isController = uis.GamepadEnabled end)
 local function getgamepadstate(keycode)
     local state = uis:GetGamepadState(Enum.UserInputType.Gamepad1)
     for _, inp in pairs(state) do
@@ -2020,6 +2022,7 @@ end
 
 uis.GamepadButtonDown:Connect(function(gamepad, key)
     if gamepad ~= Enum.UserInputType.Gamepad1 then return end
+    if not cfg['controller']['enabled'] then return end
 
     if key == Enum.KeyCode[cfg['binds']['controller lock']] then
         if islocked then
@@ -2044,11 +2047,14 @@ uis.GamepadButtonDown:Connect(function(gamepad, key)
     end
 
     if key == Enum.KeyCode[cfg['binds']['controller jump']] then
-        if cfg['super jump']['enabled'] and superjumpenabled then
+        if cfg['super jump']['enabled'] then
             local char = localplayer.Character
             if char then
                 local hum = char:FindFirstChild("Humanoid")
-                if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+                if hum then
+                    superjumpenabled = true
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
             end
         end
     end
@@ -2083,6 +2089,7 @@ end)
 
 uis.GamepadButtonUp:Connect(function(gamepad, key)
     if gamepad ~= Enum.UserInputType.Gamepad1 then return end
+    if not cfg['controller']['enabled'] then return end
     if key == Enum.KeyCode[cfg['binds']['controller fire']] then isfiring = false end
 end)
 
@@ -2197,4 +2204,4 @@ runservice.RenderStepped:Connect(LPH_NO_VIRTUALIZE(function(dt)
     end
     applycontrolleraim(dt)
 end))
-print("[Vanta] Hey nigga, we finally fucking loaded!!")
+print("[Vanta] Loaded successfully")
