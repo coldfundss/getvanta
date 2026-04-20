@@ -1,5 +1,5 @@
 if not shared.Vanta then
-    error("[Vanta] Config not found — paste the config first!")
+    warn("[Vanta] Whoops, no config found nigger!'")
 end
 
 if not LPH_OBFUSCATED then
@@ -592,7 +592,7 @@ local function cansee(part)
 
     local char = part.Parent
     local origin = camera.CFrame.Position
-    local dir = (part.Position - origin).Unit * (part.Position - origin).Magnitude
+    local dir = part.Position - origin
 
     rayparams.FilterDescendantsInstances = {localplayer.Character, char, fovparts.silentaim, fovparts.camlock, fovparts.triggerbot}
 
@@ -932,17 +932,20 @@ local function predictedpos(part, config)
     local vel = part.AssemblyLinearVelocity
     local prediction = config['prediction']
 
-    local predval
+    local px, py, pz
     if type(prediction) == "table" then
-        predval = prediction['x'] or prediction['y'] or prediction['z'] or 0.133
+        px = prediction['x'] or 0.133
+        py = prediction['y'] or 0.133
+        pz = prediction['z'] or 0.133
     else
-        predval = (prediction == 0) and 0.133 or prediction
+        local v = (prediction == 0) and 0.133 or prediction
+        px, py, pz = v, v, v
     end
 
     return part.Position + Vector3.new(
-        vel.X * predval,
-        vel.Y * predval,
-        vel.Z * predval
+        vel.X * px,
+        vel.Y * py,
+        vel.Z * pz
     )
 end
 
@@ -1083,7 +1086,7 @@ local function updatefovbox(fovpart, lines2d, fovcfg, isactive)
                 if fovcfg['visible'] then
                     fovpart.Transparency = 0.85
                     if mouseinfov3d(fovpart) then
-                        fovpart.BrickColor = BrickColor.new(fovcfg['active color'])
+                        fovpart.BrickColor = BrickColor.fromColor3(fovcfg['active color'])
                     else
                         fovpart.BrickColor = BrickColor.new("Grey")
                     end
@@ -1251,17 +1254,18 @@ local function refreshesp()
     if not cfg['esp']['enabled'] then
         for userid, esp in pairs(esplabels) do
             esp.nametag:Remove()
-            esplabels[userid] = nil
         end
+        table.clear(esplabels)
         return
     end
 
+    local toremove = {}
     for userid, esp in pairs(esplabels) do
         local player = esp.player
         if not player or not player.Parent then
             esp.nametag.Visible = false
             esp.nametag:Remove()
-            esplabels[userid] = nil
+            table.insert(toremove, userid)
             continue
         end
 
@@ -1310,6 +1314,9 @@ local function refreshesp()
         else
             esp.nametag.Visible = false
         end
+    end
+    for _, userid in ipairs(toremove) do
+        esplabels[userid] = nil
     end
 end
 
@@ -1404,7 +1411,7 @@ grm.__index = LPH_NO_VIRTUALIZE(function(self, key)
     if not checkcaller() and self == mouse and cfg['silent aimbot']['enabled'] then
         if key == "Hit" then
             if cfg['targeting']['mode'] == 'Automatic' then
-                silentaimactive = true
+                silentaimactive = currenttarget ~= nil
             end
 
             if not silentaimactive then return oldindex(self, key) end
@@ -1451,7 +1458,8 @@ oldrandom = hookfunction(math.random, LPH_NO_VIRTUALIZE(function(...)
                     local found = false
 
                     for _, weapon in pairs(cfg['spread modifications']['specific weapons']['weapons']) do
-                        if wname == weapon then
+                        local clean = weapon:gsub("%[", ""):gsub("%]", "")
+                        if wname == weapon or wname:find(clean, 1, true) then
                             found = true
                             break
                         end
@@ -1544,6 +1552,15 @@ end
 
 localplayer.CharacterAdded:Connect(function(char)
     speedenabled = false
+    superjumpenabled = false
+    isfiring = false
+    currenttarget = nil
+    lockedtarget = nil
+    islocked = false
+    silentaimactive = false
+    camlockactive = false
+    lastvisibletarget = nil
+    targetline.Visible = false
     watchchar(char)
     oncharspiderman(char)
     oncharrapidfire(char)
@@ -2128,12 +2145,22 @@ runservice.RenderStepped:Connect(LPH_NO_VIRTUALIZE(function(dt)
                 hum.JumpPower = cfg['super jump']['jump power']
             end
         end
+    elseif not superjumpenabled then
+        local hum = localplayer.Character and localplayer.Character:FindFirstChild("Humanoid")
+        if hum and hum.JumpPower ~= 50 then
+            hum.JumpPower = 50
+        end
     end
 
     if cfg['speed modifications']['enabled'] and speedenabled then
         local hum = localplayer.Character and localplayer.Character:FindFirstChild("Humanoid")
         if hum then
             hum.WalkSpeed = 16 * cfg['speed modifications']['multiplier']
+        end
+    elseif not speedenabled then
+        local hum = localplayer.Character and localplayer.Character:FindFirstChild("Humanoid")
+        if hum and hum.WalkSpeed ~= 16 then
+            hum.WalkSpeed = 16
         end
     end
 
@@ -2142,12 +2169,13 @@ runservice.RenderStepped:Connect(LPH_NO_VIRTUALIZE(function(dt)
             if player ~= localplayer and player.Character then
                 local hrp = player.Character:FindFirstChild("HumanoidRootPart")
                 if hrp then
-                    hrp.Size = Vector3.new(cfg['hitbox expander']['size'], cfg['hitbox expander']['size'], cfg['hitbox expander']['size'])
+                    local s = cfg['hitbox expander']['size']
+                    hrp.Size = Vector3.new(s, s, s)
 
-                    if cfg['hitbox expander']['Visualize'] then
+                    if cfg['hitbox expander']['visualize'] or cfg['hitbox expander']['Visualize'] then
                         hrp.Transparency = 0.7
                         hrp.BrickColor = BrickColor.new("Really blue")
-                        hrp.Material = "Neon"
+                        hrp.Material = Enum.Material.Neon
                         hrp.CanCollide = false
                     else
                         hrp.Transparency = 1
@@ -2169,4 +2197,4 @@ runservice.RenderStepped:Connect(LPH_NO_VIRTUALIZE(function(dt)
     end
     applycontrolleraim(dt)
 end))
-print("[Vanta] Loaded successfully")
+print("[Vanta] Hey nigga, we finally fucking loaded!!")
